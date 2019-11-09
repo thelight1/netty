@@ -26,7 +26,6 @@ import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.FutureListener;
 import io.netty.util.concurrent.Promise;
 import io.netty.util.internal.PlatformDependent;
-import io.netty.util.internal.ThrowableUtil;
 
 import java.util.Deque;
 
@@ -40,10 +39,8 @@ import static io.netty.util.internal.ObjectUtil.*;
  *
  */
 public class SimpleChannelPool implements ChannelPool {
-    private static final AttributeKey<SimpleChannelPool> POOL_KEY = AttributeKey.newInstance("channelPool");
-    private static final IllegalStateException FULL_EXCEPTION = ThrowableUtil.unknownStackTrace(
-            new IllegalStateException("ChannelPool full"), SimpleChannelPool.class, "releaseAndOffer(...)");
-
+    private static final AttributeKey<SimpleChannelPool> POOL_KEY =
+        AttributeKey.newInstance("io.netty.channel.pool.SimpleChannelPool");
     private final Deque<Channel> deque = PlatformDependent.newConcurrentDeque();
     private final ChannelPoolHandler handler;
     private final ChannelHealthChecker healthCheck;
@@ -206,9 +203,10 @@ public class SimpleChannelPool implements ChannelPool {
         return promise;
     }
 
-    private void notifyConnect(ChannelFuture future, Promise<Channel> promise) {
+    private void notifyConnect(ChannelFuture future, Promise<Channel> promise) throws Exception {
         if (future.isSuccess()) {
             Channel channel = future.channel();
+            handler.channelAcquired(channel);
             if (!promise.trySuccess(channel)) {
                 // Promise was completed in the meantime (like cancelled), just release the channel again
                 release(channel);
@@ -351,16 +349,21 @@ public class SimpleChannelPool implements ChannelPool {
             handler.channelReleased(channel);
             promise.setSuccess(null);
         } else {
-            closeAndFail(channel, FULL_EXCEPTION, promise);
+            closeAndFail(channel, new IllegalStateException("ChannelPool full") {
+                @Override
+                public synchronized Throwable fillInStackTrace() {
+                    return this;
+                }
+            }, promise);
         }
     }
 
-    private static void closeChannel(Channel channel) {
+    private void closeChannel(Channel channel) {
         channel.attr(POOL_KEY).getAndSet(null);
         channel.close();
     }
 
-    private static void closeAndFail(Channel channel, Throwable cause, Promise<?> promise) {
+    private void closeAndFail(Channel channel, Throwable cause, Promise<?> promise) {
         closeChannel(channel);
         promise.tryFailure(cause);
     }

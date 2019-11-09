@@ -32,6 +32,11 @@ public abstract class AbstractDerivedByteBuf extends AbstractByteBuf {
     }
 
     @Override
+    final boolean isAccessible() {
+        return unwrap().isAccessible();
+    }
+
+    @Override
     public final int refCnt() {
         return refCnt0();
     }
@@ -111,5 +116,10 @@ public abstract class AbstractDerivedByteBuf extends AbstractByteBuf {
     @Override
     public ByteBuffer nioBuffer(int index, int length) {
         return unwrap().nioBuffer(index, length);
+    }
+
+    @Override
+    public boolean isContiguous() {
+        return unwrap().isContiguous();
     }
 }

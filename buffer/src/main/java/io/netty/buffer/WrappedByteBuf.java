@@ -53,6 +53,11 @@ class WrappedByteBuf extends ByteBuf {
     }
 
     @Override
+    public boolean isContiguous() {
+        return buf.isContiguous();
+    }
+
+    @Override
     public final long memoryAddress() {
         return buf.memoryAddress();
     }
@@ -149,6 +154,11 @@ class WrappedByteBuf extends ByteBuf {
     @Override
     public final int maxWritableBytes() {
         return buf.maxWritableBytes();
+    }
+
+    @Override
+    public int maxFastWritableBytes() {
+        return buf.maxFastWritableBytes();
     }
 
     @Override
@@ -1032,5 +1042,10 @@ class WrappedByteBuf extends ByteBuf {
     @Override
     public boolean release(int decrement) {
         return buf.release(decrement);
+    }
+
+    @Override
+    final boolean isAccessible() {
+        return buf.isAccessible();
     }
 }

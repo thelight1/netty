@@ -22,11 +22,14 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelMetadata;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
+import io.netty.channel.DefaultChannelConfig;
 import io.netty.channel.DefaultChannelPromise;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http2.Http2CodecUtil.SimpleChannelPromiseAggregator;
+import io.netty.handler.codec.http2.Http2Exception.ShutdownHint;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.EventExecutor;
 import io.netty.util.concurrent.GenericFutureListener;
@@ -142,6 +145,11 @@ public class Http2ConnectionHandlerTest {
 
         promise = new DefaultChannelPromise(channel, ImmediateEventExecutor.INSTANCE);
         voidPromise = new DefaultChannelPromise(channel, ImmediateEventExecutor.INSTANCE);
+
+        when(channel.metadata()).thenReturn(new ChannelMetadata(false));
+        DefaultChannelConfig config = new DefaultChannelConfig(channel);
+        when(channel.config()).thenReturn(config);
+
         Throwable fakeException = new RuntimeException("Fake exception");
         when(encoder.connection()).thenReturn(connection);
         when(decoder.connection()).thenReturn(connection);
@@ -685,6 +693,14 @@ public class Http2ConnectionHandlerTest {
     }
 
     @Test
+    public void channelReadCompleteCallsReadWhenAutoReadFalse() throws Exception {
+        channel.config().setAutoRead(false);
+        handler = newHandler();
+        handler.channelReadComplete(ctx);
+        verify(ctx, times(1)).read();
+    }
+
+    @Test
     public void channelClosedDoesNotThrowPrefaceException() throws Exception {
         when(connection.isServer()).thenReturn(true);
         handler = newHandler();
@@ -707,12 +723,41 @@ public class Http2ConnectionHandlerTest {
     }
 
     @Test
+    public void gracefulShutdownTimeoutWhenConnectionErrorHardShutdownTest() throws Exception {
+        gracefulShutdownTimeoutWhenConnectionErrorTest0(ShutdownHint.HARD_SHUTDOWN);
+    }
+
+    @Test
+    public void gracefulShutdownTimeoutWhenConnectionErrorGracefulShutdownTest() throws Exception {
+        gracefulShutdownTimeoutWhenConnectionErrorTest0(ShutdownHint.GRACEFUL_SHUTDOWN);
+    }
+
+    private void gracefulShutdownTimeoutWhenConnectionErrorTest0(ShutdownHint hint) throws Exception {
+        handler = newHandler();
+        final long expectedMillis = 1234;
+        handler.gracefulShutdownTimeoutMillis(expectedMillis);
+        Http2Exception exception = new Http2Exception(PROTOCOL_ERROR, "Test error", hint);
+        handler.onConnectionError(ctx, false, exception, exception);
+        verify(executor, atLeastOnce()).schedule(any(Runnable.class), eq(expectedMillis), eq(TimeUnit.MILLISECONDS));
+    }
+
+    @Test
     public void gracefulShutdownTimeoutTest() throws Exception {
         handler = newHandler();
         final long expectedMillis = 1234;
         handler.gracefulShutdownTimeoutMillis(expectedMillis);
         handler.close(ctx, promise);
-        verify(executor).schedule(any(Runnable.class), eq(expectedMillis), eq(TimeUnit.MILLISECONDS));
+        verify(executor, atLeastOnce()).schedule(any(Runnable.class), eq(expectedMillis), eq(TimeUnit.MILLISECONDS));
+    }
+
+    @Test
+    public void gracefulShutdownTimeoutNoActiveStreams() throws Exception {
+        handler = newHandler();
+        when(connection.numActiveStreams()).thenReturn(0);
+        final long expectedMillis = 1234;
+        handler.gracefulShutdownTimeoutMillis(expectedMillis);
+        handler.close(ctx, promise);
+        verify(executor, atLeastOnce()).schedule(any(Runnable.class), eq(expectedMillis), eq(TimeUnit.MILLISECONDS));
     }
 
     @Test
